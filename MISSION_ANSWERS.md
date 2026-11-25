@@ -422,7 +422,7 @@ Code trong `06-lab-complete/` (sửa hết TODO, làm ngay trong thư mục đó
 ================================================================
 ```
 
-Một số dòng chi tiết từ cùng lần chạy: image **63 MB**, build 43 s; `429 sau 5 request thành công (RATE_LIMIT_PER_MINUTE=5)`; `state nằm trong Redis — restart agent vẫn bị 429`; `402 ở request thứ 1`; `15 dòng JSON`; graceful shutdown `exit code 0`; `docker stop` `exit code 0, 1.0s`. Kiểm thêm URL public: `✅ Public URL: GET https://day14-agent-3odr.onrender.com/health → 200`.
+Một số dòng chi tiết từ cùng lần chạy: image **63 MB**, build 43 s; `429 sau 5 request thành công (RATE_LIMIT_PER_MINUTE=5)`; `state nằm trong Redis — restart agent vẫn bị 429`; `402 ở request thứ 1`; `15 dòng JSON`; graceful shutdown `exit code 0`; `docker stop` `exit code 0, 1.0s`. Chạy lại lần cuối kèm URL public (`python check_production_ready.py --public-url https://day14-agent-3odr.onrender.com`): `✅ Public URL: GET https://day14-agent-3odr.onrender.com/health → 200` → **`Result: 12/12 tiêu chí đạt · 44/44 checks passed — PASS 12/12`**. (Lưu ý: gói free của Render ngủ sau ~15 phút; nếu gọi lúc đang ngủ, request đầu mất ~50 s và check URL public có thể timeout 15 s — gọi `/health` một lần để đánh thức rồi chạy lại.)
 
 ### Thiết kế
 
@@ -445,4 +445,16 @@ Kiểm tay thêm bằng `docker compose up` (agent + Redis): câu hỏi rỗng /
 
 ## AI log
 
-_(điền ở cuối)_
+Toàn bộ lab được làm cùng **Claude Code** (Anthropic, model Claude Opus 5.5) chạy trong terminal trên máy tôi, ở chế độ agent: AI đọc đề, chạy lệnh, viết code và tài liệu; tôi giao việc, làm các bước cần tài khoản (Render) và duyệt kết quả. Mọi con số trong bài đều lấy từ lệnh đã chạy thật trên máy này (output được dán nguyên văn), không có số ước lượng.
+
+| Phần | Tôi yêu cầu | AI đã làm | Tôi / AI kiểm tra thế nào |
+|---|---|---|---|
+| Môi trường | Làm theo đề | Phát hiện máy không có distro WSL2 nên `check_production_ready.py` sẽ không test được SIGTERM; dựng container Linux `python:3.12-slim` (`--network host`, mount Docker socket) để chạy mọi lệnh Python với `os.name == "posix"` | `python -c "import os; print(os.name)"` → `posix`; checker chạy đủ phần graceful shutdown |
+| Part 1, 2, 4, 5 | Chạy các exercise và trả lời câu hỏi | Chạy develop/production app, build image, compose stack, test curl 401/403/200/429, SIGTERM khi đang có request, scale 3 instance; viết câu trả lời và bảng so sánh | Output dán nguyên văn; kích thước image lấy từ `docker images` / `docker image inspect`. AI chỉ ra thêm 2 lỗi nhỏ trong code mẫu (logging của Part 1 bị nuốt mức INFO; `budget_remaining_usd` thực ra là số đã dùng) |
+| Part 6 | Hoàn thành các TODO | Viết `config.py`, `auth.py`, `redis_client.py`, `rate_limiter.py` (sliding window Redis ZSET), `cost_guard.py` (Redis INCRBYFLOAT ngày + tháng), `main.py` (JSON log, lifespan, error handler), Dockerfile multi-stage, compose, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml` | `check_production_ready.py` bản đầy đủ → PASS 12/12 (43/43). Không sửa script chấm. Test tay thêm: 422 cho input sai, 429 ở request thứ 11, tắt Redis → `/health` 200, `/ready` 503. Sửa compose để `AGENT_API_KEY` được truyền từ shell/.env sau khi test tay thấy key không vào container |
+| Part 3 | Deploy Render | Viết Blueprint, commit + push; tôi tạo Blueprint trên Render Dashboard và lưu URL + key vào `06-lab-complete/.env.render` (gitignored) | AI chạy 4 lệnh CP6 chỉ in mã HTTP (200/200/401/200) và kiểm tra key không xuất hiện trong output hay trong repo (`git grep` → không có) |
+| Part 7 Bước 1 | Load test, eval, sửa KB, CI | Thêm metric `agent_question_length_chars`; chạy 7 load test + 3 eval; thêm 2 entry KB (JWT, HPA) ở cả develop và production; viết workflow `eval-quality-gate.yml` | Eval cuối 23/23, 0 regression, gate PASS; giả lập job CI: v2 exit 0, v1 exit 1. Không sửa `golden_dataset.jsonl` |
+| Part 7 Bước 2 | Observability stack | Sửa Dockerfile agent (thiếu `PYTHONUSERBASE` → crash-loop); chạy Locust headless scale 1/3; chạy 5 thí nghiệm A–E và đo thời gian tới firing bằng cách poll Prometheus API; chụp Grafana/Jaeger/Prometheus bằng Chromium headless (Playwright) | Số liệu ghi vào `benchmark-results/experiments_raw.txt`; mọi số trong `BENCHMARK_REPORT.md` đối chiếu với JSON/CSV. Ghi rõ các điểm lệch so với README (cost alert firing ngay ở tải nền, D không có 504) thay vì "chỉnh" cho khớp |
+| Sự cố | — | Ổ C: đầy làm Docker Desktop sập giữa chừng; AI (với sự đồng ý của tôi) chuyển ổ đĩa Docker 41 GB sang E: và tạo junction, khởi động lại container của tôi | Docker chạy lại với đủ image/container; kiểm tra kích thước file trước khi xoá bản gốc |
+
+Trước khi nộp tôi tự: đọc lại code `06-lab-complete/app/` để giải thích được từng phần khi Lab Coach hỏi, mở URL Render trên trình duyệt, chụp `dashboard.png` / `running.png` trên Render Dashboard, và đối chiếu các bảng trong `BENCHMARK_REPORT.md` với file report.

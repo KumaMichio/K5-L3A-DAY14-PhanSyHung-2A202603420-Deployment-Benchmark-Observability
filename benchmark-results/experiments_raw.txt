@@ -1,0 +1,17 @@
+Part 7 step 2 — raw measurements (2026-11-25, UTC), Prometheus API polled every 2s
+7.4 baseline (30 users, 2 agents, v2 small): p95=0.294s avg=0.237s p99=1.84s; req/s per instance 9.16 / 9.49;
+    tokens/s input=1465 output=781; error rate 0.7%; cost burn 2.48 $/h (> $2 threshold -> LLMCostBurnRateHigh already firing at baseline)
+    curl :8080/metrics -> 404 (nginx blocks)
+7.5 slow trace 959eb1b1972c3d9977a605ecf7752d96 total 1753.4ms: chat mock-llm-small 1675.4ms (95.6%), agent.run 1702.1, retrieve 26.5
+    log: {"event": "llm_call", "trace_id": "959eb1b1972c3d9977a605ecf7752d96", "llm_ms": 1674.6, ...} / http_request ms 1752.8
+    error trace eb7f9efc0a46b6be4dc1bbbc26e55b18 (503, 93.2ms), log llm_error "Upstream LLM error: 503 Service Unavailable (mock)"
+7.6 A MOCK_ERROR_RATE=0.2 applied 09:05:09 -> AgentHighErrorRate pending 30s, FIRING 88s (09:06:37), error rate 17.4%
+    B +MOCK_SLOW_RATE=0.3 applied 09:06:46 -> AgentHighLatencyP95 pending 28s, FIRING 148s (09:09:14); p95 1.90s avg 0.59s p99 1.98s
+    (A+B both firing -> screenshots/prometheus-alert-firing.png)
+    D docker pause agent-1 09:13:32 -> AgentInstanceDown pending 11s, FIRING 41s; up{}=0 for 1 instance; agent 5xx 0.6% (panel green);
+      nginx 504 count = 0: proxy_next_upstream timeout retries other instance after proxy_read_timeout 10s -> Locust max 10004ms
+    C (load lowered to 10 users, baseline < $2/h) LLM_MODEL=mock-llm-large 09:14:41 -> LLMCostBurnRateHigh pending 27s, FIRING 146s;
+      cost 12.2 $/h (1m), p95 0.70s, 5.5 req/s
+    E AGENT_VERSION=v1 09:17:20 -> no SLO alert (cost alert still firing from C's 5m window); input tokens/call 36.5 (v2 ~80);
+      tokens/s in=235 out=130; error 1.7%; p95 0.198s
+Scale (100 users, 2m): see scale_1_stats.csv / scale_3_stats.csv — /ask RPS 59.9 vs 60.3, p95 270 vs 230 ms (bottleneck = load generator + LLM latency)
